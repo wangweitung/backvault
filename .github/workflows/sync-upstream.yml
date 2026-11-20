@@ -1,3 +1,6 @@
+# 每日把上游 cbb199318/backvault 的 master 合并进本仓库 master。
+# 本仓库在 master 上额外携带 .github/workflows，因此用 merge 而非 ff-only，
+# 避免覆盖这些自有文件；上游没有同名文件时不会冲突。
 name: Sync upstream backvault
 
 on:

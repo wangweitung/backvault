@@ -1,3 +1,8 @@
+# 构建 Docker 镜像并推送 DockerHub。
+# 需要先在仓库 Settings > Secrets and variables > Actions 配置：
+#   DOCKERHUB_USERNAME  DockerHub 用户名
+#   DOCKERHUB_TOKEN     DockerHub Access Token
+# 镜像地址：<DOCKERHUB_USERNAME>/backvault:<latest|应用版本>
 name: Build and publish Docker image
 
 on:
