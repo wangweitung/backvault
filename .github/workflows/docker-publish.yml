@@ -1,0 +1,81 @@
+name: Build and publish Docker image
+
+on:
+  workflow_run:
+    workflows: ["Sync upstream backvault"]
+    types: [completed]
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    # 上游同步成功后才构建；手动触发与打标签始终执行
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Download engine binaries (restic 0.18.0 + rclone 1.75.2)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/encbin
+
+          curl -fsSL -o /tmp/restic.bz2 \
+            https://github.com/restic/restic/releases/download/v0.18.0/restic_0.18.0_linux_amd64.bz2
+          bunzip2 -c /tmp/restic.bz2 > /tmp/encbin/restic
+
+          curl -fsSL -o /tmp/rclone.zip \
+            https://github.com/rclone/rclone/releases/download/v1.75.2/rclone-v1.75.2-linux-amd64.zip
+          mkdir -p /tmp/rclone-x
+          unzip -q -o /tmp/rclone.zip -d /tmp/rclone-x
+          find /tmp/rclone-x -type f -name rclone -exec cp {} /tmp/encbin/rclone \;
+
+          chmod +x /tmp/encbin/restic /tmp/encbin/rclone
+          /tmp/encbin/restic version
+          /tmp/encbin/rclone version
+
+      - name: Build image (frontend -> Go backend -> engines -> docker build)
+        run: ENGBIN=/tmp/encbin ./build.sh docker
+
+      - name: Read app version
+        id: ver
+        run: |
+          V=$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*//p' encbackup/manifest | head -n1 | tr -d " \"\r")
+          if [ -z "$V" ]; then
+            echo "Failed to read version from encbackup/manifest"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag and push
+        run: |
+          set -euo pipefail
+          IMG="${{ secrets.DOCKERHUB_USERNAME }}/backvault"
+          docker tag backvault:latest "${IMG}:latest"
+          docker tag backvault:latest "${IMG}:${{ steps.ver.outputs.version }}"
+          docker push "${IMG}:latest"
+          docker push "${IMG}:${{ steps.ver.outputs.version }}"
+          echo "Pushed ${IMG}:latest and ${IMG}:${{ steps.ver.outputs.version }}"

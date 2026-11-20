@@ -1,0 +1,47 @@
+name: Sync upstream backvault
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # 每天 UTC 01:00 = 北京时间 09:00
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/cbb199318/backvault.git
+          git fetch upstream --prune
+
+      - name: Merge upstream/master
+        id: merge
+        run: |
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "Already contains upstream/master, nothing to sync"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git merge upstream/master --no-edit
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: steps.merge.outputs.changed == 'true'
+        run: git push origin HEAD:master
